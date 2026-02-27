@@ -84,19 +84,35 @@ df["forgone_revenue"] = df["forgone_revenue"].clip(lower=0)
 df["modeled_collection"] = df[["fy_total", "modeled_collection"]].max(axis=1)
 
 # ---------------------------------------------------
-# TABS — Bar chart first, Line chart second
+# TABS
 # ---------------------------------------------------
-tab_bar, tab_chart, tab_table = st.tabs(
-    ["Bar Chart — Forgone Revenue", "Line Chart", "Data Table"]
+tab_bar, tab_chart, tab_top, tab_table = st.tabs(
+    ["Bar Chart — Forgone Revenue", "Line Chart", "Top Municipalities", "Data Table"]
 )
 
-municipalities = sorted(df["local_government"].unique())
+municipalities = ["All Municipalities"] + sorted(df["local_government"].unique())
 min_year = int(df["fy"].min())
 max_year = int(df["fy"].max())
 
 
+def filter_data(dataframe, muni, year_range):
+    """Filter by municipality and year range. If 'All Municipalities', aggregate by year."""
+    filtered = dataframe[dataframe["fy"].between(year_range[0], year_range[1])].copy()
+    if muni == "All Municipalities":
+        agg = filtered.groupby("fy", as_index=False).agg(
+            fy_total=("fy_total", "sum"),
+            modeled_collection=("modeled_collection", "sum"),
+            forgone_revenue=("forgone_revenue", "sum"),
+        )
+        agg["actual_rate"] = agg["fy"].map(ACTUAL_EFFECTIVE_RATES)
+        agg["local_government"] = "All Municipalities"
+        return agg
+    else:
+        return filtered[filtered["local_government"] == muni].copy()
+
+
 # ===================================================
-# BAR CHART TAB — STACKED (ACTUAL + FORGONE)
+# BAR CHART TAB
 # ===================================================
 with tab_bar:
     col_muni2, col_years2 = st.columns([1, 2])
@@ -111,10 +127,7 @@ with tab_bar:
             key="yr_bar",
         )
 
-    d2 = df[
-        (df["local_government"] == muni_bar)
-        & (df["fy"].between(year_range_bar[0], year_range_bar[1]))
-    ].copy()
+    d2 = filter_data(df, muni_bar, year_range_bar)
 
     fig_bar = go.Figure()
 
@@ -250,10 +263,7 @@ with tab_chart:
             key="yr_line",
         )
 
-    d = df[
-        (df["local_government"] == muni_line)
-        & (df["fy"].between(year_range_line[0], year_range_line[1]))
-    ].copy()
+    d = filter_data(df, muni_line, year_range_line)
 
     fig_line = go.Figure()
 
@@ -316,6 +326,123 @@ with tab_chart:
         .to_csv(index=False)
         .encode("utf-8"),
         file_name=f"{muni_line}_lgdf_line_data.csv",
+        mime="text/csv",
+    )
+
+
+# ===================================================
+# TOP MUNICIPALITIES TAB
+# ===================================================
+with tab_top:
+    st.subheader("Top Municipalities by Total Forgone Revenue")
+
+    top_col1, top_col2 = st.columns([1, 2])
+    with top_col1:
+        top_n = st.selectbox(
+            "Show Top",
+            [10, 25, 50, 100, 250],
+            index=1,
+            key="top_n",
+        )
+    with top_col2:
+        year_range_top = st.slider(
+            "Select Year Range",
+            min_year,
+            max_year,
+            (min_year, max_year),
+            key="yr_top",
+        )
+
+    filtered_top = df[df["fy"].between(year_range_top[0], year_range_top[1])]
+
+    muni_totals = filtered_top.groupby("local_government", as_index=False).agg(
+        total_actual=("fy_total", "sum"),
+        total_modeled=("modeled_collection", "sum"),
+        total_forgone=("forgone_revenue", "sum"),
+    ).sort_values("total_forgone", ascending=False)
+
+    grand_total = muni_totals["total_forgone"].sum()
+    grand_actual = muni_totals["total_actual"].sum()
+    grand_modeled = muni_totals["total_modeled"].sum()
+
+    gc1, gc2, gc3 = st.columns(3)
+    with gc1:
+        st.metric("Grand Total Actual", f"${grand_actual:,.0f}")
+    with gc2:
+        st.metric("Grand Total Modeled", f"${grand_modeled:,.0f}")
+    with gc3:
+        st.metric("Grand Total Forgone Revenue", f"${grand_total:,.0f}")
+
+    top_munis = muni_totals.head(top_n)
+
+    # Horizontal bar chart — easier to read municipality names
+    fig_top = go.Figure()
+
+    fig_top.add_trace(
+        go.Bar(
+            y=top_munis["local_government"].iloc[::-1],
+            x=top_munis["total_actual"].iloc[::-1],
+            name="Actual Collection",
+            orientation="h",
+            marker_color="rgba(124, 179, 66, 0.5)",
+            hovertemplate="%{y}<br>Actual: $%{x:,.0f}<extra></extra>",
+        )
+    )
+
+    fig_top.add_trace(
+        go.Bar(
+            y=top_munis["local_government"].iloc[::-1],
+            x=top_munis["total_forgone"].iloc[::-1],
+            name="Forgone Revenue",
+            orientation="h",
+            marker_color="rgba(76, 175, 80, 0.9)",
+            hovertemplate="%{y}<br>Forgone: $%{x:,.0f}<extra></extra>",
+        )
+    )
+
+    chart_height = max(500, top_n * 22)
+
+    fig_top.update_layout(
+        barmode="stack",
+        title=f"Top {top_n} Municipalities — Total Forgone Revenue ({year_range_top[0]}–{year_range_top[1]})",
+        xaxis_title="Total Collection ($)",
+        xaxis_tickformat=",.0f",
+        yaxis_title="",
+        height=chart_height,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
+        margin=dict(l=200),
+    )
+
+    st.plotly_chart(fig_top, use_container_width=True)
+
+    # Full ranking table
+    st.subheader(f"Top {top_n} — Detailed Ranking")
+    display_top = top_munis.copy()
+    display_top.insert(0, "Rank", range(1, len(display_top) + 1))
+    display_top.columns = [
+        "Rank",
+        "Municipality",
+        "Total Actual Collection",
+        "Total Modeled Collection",
+        "Total Forgone Revenue",
+    ]
+
+    st.dataframe(
+        display_top.style.format(
+            {
+                "Total Actual Collection": "${:,.0f}",
+                "Total Modeled Collection": "${:,.0f}",
+                "Total Forgone Revenue": "${:,.0f}",
+            }
+        ),
+        use_container_width=True,
+        height=min(650, top_n * 38 + 50),
+    )
+
+    st.download_button(
+        f"Download Top {top_n} Municipalities",
+        muni_totals.to_csv(index=False).encode("utf-8"),
+        file_name=f"top_municipalities_forgone_revenue_{year_range_top[0]}_{year_range_top[1]}.csv",
         mime="text/csv",
     )
 

@@ -65,7 +65,7 @@ st.write("Use the slider below to set the modeled LGDF effective rate and compar
 modeled_rate = st.slider(
     "Modeled Effective Rate (%)",
     min_value=5.45,
-    max_value=15.0,
+    max_value=11.0,
     value=10.0,
     step=0.25,
     format="%.2f%%",

@@ -67,7 +67,7 @@ modeled_rate = st.slider(
     min_value=5.45,
     max_value=11.0,
     value=10.0,
-    step=0.25,
+    step=0.05,
     format="%.2f%%",
 )
 

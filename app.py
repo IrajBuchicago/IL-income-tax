@@ -62,13 +62,13 @@ st.success(f"Loaded {len(df)} rows | {df['local_government'].nunique()} municipa
 st.header("LGDF Rate Modeling")
 st.write("Use the slider below to set the modeled LGDF effective rate and compare against actual collections.")
 
-modeled_rate = st.slider(
+modeled_rate = st.number_input(
     "Modeled Effective Rate (%)",
-    min_value=5.45,
-    max_value=11.0,
+    min_value=0.01,
+    max_value=100.0,
     value=10.0,
     step=0.05,
-    format="%.2f%%",
+    format="%.2f",
 )
 
 st.info(f"Currently modeling at **{modeled_rate:.2f}%**. Drag the slider above to change it.")
